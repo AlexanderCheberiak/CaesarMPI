@@ -7,7 +7,6 @@
 
 using namespace std;
 
-// Функція для локального шифрування фрагмента тексту
 void encryptCaesar(char* text, int length, int shift) {
     shift = shift % 26;
     if (shift < 0) shift += 26;
@@ -32,31 +31,24 @@ int main(int argc, char** argv) {
 
     string originalText;
     int totalLength = 0;
-    int shift = 5; // Крок зсуву
+    int shift = 5;
 
-    // Головний процес читає файл
     if (rank == 0) {
         ifstream inFile("input.txt");
         if (!inFile) {
-            cerr << "Помилка: не вдалося відкрити файл input.txt!" << endl;
-            MPI_Abort(MPI_COMM_WORLD, 1); // Перериваємо виконання всіх процесів
+            cerr << "Error: can`t open input.txt!" << endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
-
-        // Зчитуємо весь вміст файлу у рядок
         stringstream buffer;
         buffer << inFile.rdbuf();
         originalText = buffer.str();
         totalLength = originalText.length();
         inFile.close();
 
-        cout << "Прочитано " << totalLength << " символів з input.txt." << endl;
-        cout << "Кількість MPI процесів: " << size << endl;
+        cout << "Proc count: " << size << ". Text size: " << totalLength << " characters." << endl;
     }
 
-    // Передаємо загальну довжину тексту всім процесам
     MPI_Bcast(&totalLength, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    // Якщо файл порожній, просто завершуємо програму
     if (totalLength == 0) {
         MPI_Finalize();
         return 0;
@@ -64,7 +56,6 @@ int main(int argc, char** argv) {
 
     vector<int> sendCounts(size);
     vector<int> displacements(size);
-
     int baseChunkSize = totalLength / size;
     int remainder = totalLength % size;
 
@@ -78,37 +69,30 @@ int main(int argc, char** argv) {
     int localLength = sendCounts[rank];
     vector<char> localBuffer(localLength);
 
-    // Розподіл тексту між усіма процесами
-    MPI_Scatterv(rank == 0 ? originalText.data() : nullptr,
-        sendCounts.data(), displacements.data(), MPI_CHAR,
-        localBuffer.data(), localLength, MPI_CHAR,
-        0, MPI_COMM_WORLD);
+    string encryptedText;
+    if (rank == 0) { encryptedText.resize(totalLength); }
 
-    // Паралельне виконання
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    double start_time = MPI_Wtime();
+
+    MPI_Scatterv(rank == 0 ? originalText.data() : nullptr, sendCounts.data(), displacements.data(), MPI_CHAR, localBuffer.data(), localLength, MPI_CHAR, 0, MPI_COMM_WORLD);
+
     encryptCaesar(localBuffer.data(), localLength, shift);
 
-    string encryptedText;
-    if (rank == 0) {
-        encryptedText.resize(totalLength);
-    }
+    MPI_Gatherv(localBuffer.data(), localLength, MPI_CHAR, rank == 0 ? &encryptedText[0] : nullptr, sendCounts.data(), displacements.data(), MPI_CHAR, 0, MPI_COMM_WORLD);
 
-    // Збір результатів
-    MPI_Gatherv(localBuffer.data(), localLength, MPI_CHAR,
-        rank == 0 ? &encryptedText[0] : nullptr,
-        sendCounts.data(), displacements.data(), MPI_CHAR,
-        0, MPI_COMM_WORLD);
+    double end_time = MPI_Wtime();
 
-    // Головний процес записує результат у новий файл
     if (rank == 0) {
-        ofstream outFile("output.txt");
+        cout << "Exec time: " << (end_time - start_time) << " sec." << endl;
+
+        ofstream outFile("output_mpi.txt");
         if (outFile) {
             outFile << encryptedText;
             outFile.close();
-            cout << "Результат успішно збережено у output.txt." << endl;
         }
-        else {
-            cerr << "Помилка: не вдалося створити output.txt!" << endl;
-        }
+        else { cerr << "Error ehile writing in file!" << endl; }
     }
 
     MPI_Finalize();
