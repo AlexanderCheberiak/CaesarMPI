@@ -4,3 +4,4 @@ CaesarMPI/
 input.txt
 output_seq.txt
 output_mpi.txt
+output_omp.txt
